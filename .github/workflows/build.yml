@@ -1,0 +1,211 @@
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+  schedule:
+    - cron: '0 0 * * *'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+        path: top-user-agents
+    - name: Build
+      shell: bash
+      run: |
+        cd top-user-agents
+        
+        # Configure git to be more predictable and deterministic
+        git config core.autocrlf false
+        git config core.ignorecase false
+        git config core.fscache true
+        git config core.longpaths true
+        git config diff.renameLimit 0
+        git config status.renameLimit 0
+        git config merge.renameLimit 0
+        git config http.lowSpeedLimit 0
+        git config http.lowSpeedTime 300
+        git config http.postBuffer 1048576000
+        git config pack.threads 1
+        git config index.threads 0
+        
+        # Check top-user-agents version on npm
+        export top_user_agents_version=$(curl -sS 'https://registry.npmjs.org/top-user-agents' | python -c "import sys, json; print(json.load(sys.stdin)['dist-tags']['latest'])")
+        if [ -f "package.json" ] && [ $top_user_agents_version == $(cat package.json | python -c "import sys, json; print(json.load(sys.stdin)['version'])") ]; then
+          # Install using npm 6
+          # Later versions fail to create a sane dependency tree in some situations
+          export npm_version=$(curl -sS 'https://registry.npmjs.org/npm' | python -c "import sys, json; print(json.load(sys.stdin)['dist-tags']['latest-6'])")
+          curl -sSo "npm-$npm_version.tgz" "https://registry.npmjs.org/npm/-/npm-$npm_version.tgz"
+          mkdir -p "bin/npm"
+          tar -xzf "npm-$npm_version.tgz" --strip-components=1 -C "bin/npm"
+          rm "npm-$npm_version.tgz"
+        
+          # Install dependencies
+          node bin/npm/bin/npm-cli.js install --no-audit --no-bin-links --no-fund --ignore-scripts --no-optional "electron" "json-stringify-nice"
+          cd node_modules/electron
+          node install.js
+          cd ~-
+        
+          # Update user agents
+          cat << 'EOF' > script.js
+        if(process.versions.electron) {
+          console.log('Running on Electron ' + process.versions.electron + ' + Node ' + process.versions.node)
+          const electronUserAgent = require('./index.json')[0]
+          const fs = require('fs')
+          const { app, BrowserWindow } = require('electron')
+          const stringify = require('json-stringify-nice')
+          app.whenReady().then(() => {
+            const win = new BrowserWindow({
+              width: 1920,
+              height: 969,
+              frame: false,
+              show: false,
+              webPreferences: {
+                  backgroundThrottling: false
+              }
+            })
+            win.loadURL('https://techblog.willshouse.com/2012/01/03/most-common-user-agents/', {userAgent: electronUserAgent})
+            win.webContents.on('did-finish-load', () => {
+              win.webContents.executeJavaScript(`[...document.querySelectorAll('tbody .useragent')].map(e => e.innerText)`).then((result) => {
+                if(result.length > 0) {
+                  fs.writeFileSync('./index.json', stringify(result), 'utf-8')
+                  app.exit()
+                }
+              })
+            })
+          })
+        }
+        else {
+          console.log('Running on Node ' + process.versions.node)
+          const electron = require('electron')
+          const { spawn } = require('child_process')
+          spawn(electron, ['--use_strict', 'script.js'], { stdio: 'inherit' })
+        }
+        EOF
+          node --use_strict script.js
+          rm script.js
+        
+          # Remove npm
+          rm -r bin/
+          git checkout -- package.json
+          rm package-lock.json
+          rm -r node_modules/
+        
+          # Push to GitHub
+          git add -f index.json
+          git -c user.name="GitHub" -c user.email="noreply@github.com" commit --author="github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>" -m"Update user agents" | sed -n 1p
+          git tag -f "$top_user_agents_version"
+          git push
+          git push -f origin "refs/tags/$top_user_agents_version:refs/tags/$top_user_agents_version"
+          exit 0
+        fi
+        
+        # Roll back the repository
+        git reset --hard $(git rev-list --max-parents=0 HEAD)
+        git clean -dffx
+        
+        # Install using npm 6
+        # Later versions fail to create a sane dependency tree in some situations
+        export npm_version=$(curl -sS 'https://registry.npmjs.org/npm' | python -c "import sys, json; print(json.load(sys.stdin)['dist-tags']['latest-6'])")
+        curl -sSo "npm-$npm_version.tgz" "https://registry.npmjs.org/npm/-/npm-$npm_version.tgz"
+        mkdir -p "bin/npm"
+        tar -xzf "npm-$npm_version.tgz" --strip-components=1 -C "bin/npm"
+        rm "npm-$npm_version.tgz"
+        
+        # Initialize dummy package
+        node bin/npm/bin/npm-cli.js init -y
+        sed -i 's/"name": "top-user-agents"/"name": "npm"/' -- 'package.json'
+        
+        # Install top-user-agents as a dependency
+        node bin/npm/bin/npm-cli.js install --no-audit --no-bin-links --no-fund --ignore-scripts --no-optional "electron" "json-stringify-nice" "top-user-agents@$top_user_agents_version"
+        cd node_modules/electron
+        node install.js
+        cd ~-
+        
+        # Update user agents
+        cat << 'EOF' > script.js
+        if(process.versions.electron) {
+          console.log('Running on Electron ' + process.versions.electron + ' + Node ' + process.versions.node)
+          const electronUserAgent = require('top-user-agents')[0]
+          const fs = require('fs')
+          const { app, BrowserWindow } = require('electron')
+          const stringify = require('json-stringify-nice')
+          app.whenReady().then(() => {
+            const win = new BrowserWindow({
+              width: 1920,
+              height: 969,
+              frame: false,
+              show: false,
+              webPreferences: {
+                  backgroundThrottling: false
+              }
+            })
+            win.loadURL('https://techblog.willshouse.com/2012/01/03/most-common-user-agents/', {userAgent: electronUserAgent})
+            win.webContents.on('did-finish-load', () => {
+              win.webContents.executeJavaScript(`[...document.querySelectorAll('tbody .useragent')].map(e => e.innerText)`).then((result) => {
+                if(result.length > 0) {
+                  fs.writeFileSync('./node_modules/top-user-agents/index.json', stringify(result), 'utf-8')
+                  app.exit()
+                }
+              })
+            })
+          })
+        }
+        else {
+          console.log('Running on Node ' + process.versions.node)
+          const electron = require('electron')
+          const { spawn } = require('child_process')
+          spawn(electron, ['--use_strict', 'script.js'], { stdio: 'inherit' })
+        }
+        EOF
+        node --use_strict script.js
+        rm script.js
+        
+        # Remove npm
+        rm -r bin/
+        rm package.json
+        rm package-lock.json
+        
+        # Delete install script since it doesn't function without dependencies
+        rm -r node_modules/top-user-agents/scripts/
+        
+        # Modify package.json to match the top-user-agents tarball from npm
+        sed -i '/"_requested": {/,/}/d' -- 'node_modules/top-user-agents/package.json'
+        sed -i '/"_requiredBy": \[/,/\]/d' -- 'node_modules/top-user-agents/package.json'
+        sed -i '/"scripts": {/,/}/d' -- 'node_modules/top-user-agents/package.json'
+        sed -i '/"dependencies": {/,/}/d' -- 'node_modules/top-user-agents/package.json'
+        sed -i '/"devDependencies": {/,/}/d' -- 'node_modules/top-user-agents/package.json'
+        sed -i '/"engines": {/,/}/d' -- 'node_modules/top-user-agents/package.json'
+        sed -i '/"files": \[/,/\]/d' -- 'node_modules/top-user-agents/package.json'
+        sed -i '/"commitlint": {/,/}/d' -- 'node_modules/top-user-agents/package.json'
+        sed -i '/"nano-staged": {/,/}/d' -- 'node_modules/top-user-agents/package.json'
+        sed -i '/"simple-git-hooks": {/,/}/d' -- 'node_modules/top-user-agents/package.json'
+        sed -i '/"_from":/d' -- 'node_modules/top-user-agents/package.json'
+        sed -i '/"_id":/d' -- 'node_modules/top-user-agents/package.json'
+        sed -i '/"_inBundle":/d' -- 'node_modules/top-user-agents/package.json'
+        sed -i '/"_integrity":/d' -- 'node_modules/top-user-agents/package.json'
+        sed -i '/"_location":/d' -- 'node_modules/top-user-agents/package.json'
+        sed -i '/"_phantomChildren":/d' -- 'node_modules/top-user-agents/package.json'
+        sed -i '/"_resolved":/d' -- 'node_modules/top-user-agents/package.json'
+        sed -i '/"_shasum":/d' -- 'node_modules/top-user-agents/package.json'
+        sed -i '/"_spec":/d' -- 'node_modules/top-user-agents/package.json'
+        sed -i '/"_where":/d' -- 'node_modules/top-user-agents/package.json'
+        sed -i '/"bundleDependencies":/d' -- 'node_modules/top-user-agents/package.json'
+        sed -i '/"deprecated":/d' -- 'node_modules/top-user-agents/package.json'
+        
+        # Add top-user-agents to the repository
+        rm -rf node_modules/top-user-agents/node_modules/
+        cp -r node_modules/top-user-agents ..
+        rm -r node_modules/
+        git add -f .
+        
+        # Push to GitHub
+        git -c user.name="GitHub" -c user.email="noreply@github.com" commit --author="github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>" -m"$top_user_agents_version" | sed -n 1p
+        git tag -f "$top_user_agents_version"
+        git push --force
+        git push -f origin "refs/tags/$top_user_agents_version:refs/tags/$top_user_agents_version"
