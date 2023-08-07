@@ -1,0 +1,36 @@
+{
+  "author": {
+    "name": "Kiko Beats",
+    "email": "josefrancisco.verdu@gmail.com",
+    "url": "https://kikobeats.com"
+  },
+  "bugs": {
+    "url": "https://github.com/Kikobeats/top-user-agents/issues"
+  },
+  "contributors": [
+    {
+      "name": "Karl Horky",
+      "email": "karl.horky@gmail.com"
+    }
+  ],
+  "description": "A list of most common User Agent.",
+  "homepage": "https://github.com/Kikobeats/top-user-agents",
+  "keywords": [
+    "agent",
+    "common",
+    "popular",
+    "string",
+    "top",
+    "ua",
+    "user",
+    "useragent"
+  ],
+  "license": "MIT",
+  "main": "index.js",
+  "name": "top-user-agents",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Kikobeats/top-user-agents.git"
+  },
+  "version": "1.0.60"
+}
