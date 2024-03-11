@@ -1,0 +1,58 @@
+{
+  "name": "top-user-agents",
+  "description": "A list of most common User Agent.",
+  "homepage": "https://microlink.io/user-agents",
+  "version": "2.1.15",
+  "main": "index.js",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./desktop": {
+      "types": "./index.d.ts",
+      "default": "./desktop.js"
+    },
+    "./mobile": {
+      "types": "./index.d.ts",
+      "default": "./mobile.js"
+    }
+  },
+  "author": {
+    "name": "microlink.io",
+    "email": "hello@microlink.io",
+    "url": "https://microlink.io"
+  },
+  "contributors": [
+    {
+      "name": "Kiko Beats",
+      "email": "josefrancisco.verdu@gmail.com"
+    },
+    {
+      "name": "Karl Horky",
+      "email": "karl.horky@gmail.com"
+    },
+    {
+      "name": "Kevin van Rijn",
+      "email": "6368561+kevinvanrijn@users.noreply.github.com"
+    }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Kikobeats/top-user-agents.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Kikobeats/top-user-agents/issues"
+  },
+  "keywords": [
+    "agent",
+    "common",
+    "popular",
+    "string",
+    "top",
+    "ua",
+    "user",
+    "useragent"
+  ],
+  "license": "MIT"
+}
