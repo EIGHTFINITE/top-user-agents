@@ -1,0 +1,145 @@
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+  schedule:
+    - cron: '15 0 * * *'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@main
+      with:
+        fetch-depth: 0
+        path: top-user-agents
+    - name: Build
+      shell: bash
+      run: |
+        cd top-user-agents
+        
+        # Configure git to be more predictable and deterministic
+        git config core.autocrlf false
+        git config core.ignorecase false
+        git config core.fscache true
+        git config core.longpaths true
+        git config diff.renameLimit 0
+        git config status.renameLimit 0
+        git config merge.renameLimit 0
+        git config http.lowSpeedLimit 0
+        git config http.lowSpeedTime 300
+        git config http.postBuffer 1048576000
+        git config pack.threads 1
+        git config index.threads 0
+        
+        # Check top-user-agents version on npm
+        export top_user_agents_version=$(curl -sS 'https://registry.npmjs.org/top-user-agents' | python -c "import sys, json; print(json.load(sys.stdin)['dist-tags']['latest'])")
+        if [ -f "package.json" ] && [ $top_user_agents_version == $(cat package.json | python -c "import sys, json; print(json.load(sys.stdin)['version'])") ]; then
+          # Update user agents
+          git remote add microlinkhq https://github.com/microlinkhq/top-user-agents.git
+          git fetch --force --depth=1 --no-tags microlinkhq master:refs/remotes/microlinkhq/master
+          git restore --source=refs/remotes/microlinkhq/master -- src/
+          cat << 'EOF' > script.js
+        const fs = require('fs')
+        const re = /(?:^| )Electron(?:\/| |; |$)/i
+        fs.writeFileSync('./src/desktop.json', JSON.stringify(require('./src/desktop.json').filter(k => !k.match(re)), null, 2), 'utf-8')
+        fs.writeFileSync('./src/index.json', JSON.stringify(require('./src/index.json').filter(k => !k.match(re)), null, 2), 'utf-8')
+        fs.writeFileSync('./src/mobile.json', JSON.stringify(require('./src/mobile.json').filter(k => !k.match(re)), null, 2), 'utf-8')
+        EOF
+          node --use_strict script.js
+          rm script.js
+          cp -af src/. .
+          rm -r src/
+        
+          # Push to GitHub
+          git add -f .
+          git -c user.name="GitHub" -c user.email="noreply@github.com" commit --author="github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>" -m"Update user agents" | sed -n 1p || true
+          git tag -f "$top_user_agents_version"
+          git push
+          git push -f origin "refs/tags/$top_user_agents_version:refs/tags/$top_user_agents_version"
+          exit 0
+        fi
+        
+        # Roll back the repository
+        git reset --hard $(git rev-list --max-parents=0 HEAD)
+        git clean -dffx
+        
+        # Install using npm 6
+        # Later versions fail to create a sane dependency tree in some situations
+        export npm_version=$(curl -sS 'https://registry.npmjs.org/npm' | python -c "import sys, json; print(json.load(sys.stdin)['dist-tags']['latest-6'])")
+        curl -sSo "npm-$npm_version.tgz" "https://registry.npmjs.org/npm/-/npm-$npm_version.tgz"
+        mkdir -p "bin/npm"
+        tar -xzf "npm-$npm_version.tgz" --strip-components=1 -C "bin/npm"
+        rm "npm-$npm_version.tgz"
+        
+        # Initialize dummy package
+        node bin/npm/bin/npm-cli.js init -y
+        sed -i 's/"name": "top-user-agents"/"name": "npm"/' -- 'package.json'
+        
+        # Install top-user-agents as a dependency
+        node bin/npm/bin/npm-cli.js install --no-audit --no-bin-links --no-fund --ignore-scripts --no-optional "top-user-agents@$top_user_agents_version"
+        
+        # Remove npm
+        rm -r bin/
+        rm package.json
+        rm package-lock.json
+        
+        # Modify package.json to match the top-user-agents tarball from npm
+        cat << 'EOF' > script.js
+        const fs = require('fs')
+        const pkg = require('./node_modules/top-user-agents/package.json')
+        const obj = {}
+        Object.keys(pkg.exports).forEach(k => {
+          pkg.exports[k]['types'] = pkg.exports[k]['types'].replace(/^\.\/src\//, './')
+          pkg.exports[k]['default'] = pkg.exports[k]['default'].replace(/^\.\/src\//, './')
+        })
+        obj.name = pkg.name
+        obj.description = pkg.description
+        obj.homepage = pkg.homepage
+        obj.version = pkg.version
+        obj.types = pkg.types.replace(/^\.\/src\//, './')
+        obj.main = 'index.js'
+        obj.exports = pkg.exports
+        obj.author = pkg.author
+        obj.contributors = pkg.contributors
+        obj.repository = pkg.repository
+        obj.bugs = pkg.bugs
+        obj.keywords = pkg.keywords
+        obj.license = pkg.license
+        fs.writeFileSync('./node_modules/top-user-agents/package.json', JSON.stringify(obj, null, 2) + '\n', 'utf-8')
+        EOF
+        node --use_strict script.js
+        rm script.js
+        
+        # README
+        sed -i 's|(/stats\.png)|(https://github.com/microlinkhq/top-user-agents/blob/master/stats.png)|' -- 'node_modules/top-user-agents/README.md'
+        
+        # Add top-user-agents to the repository
+        rm -rf node_modules/top-user-agents/node_modules/
+        cp -r node_modules/top-user-agents ..
+        rm -r node_modules/
+        
+        # Update user agents
+        git remote add microlinkhq https://github.com/microlinkhq/top-user-agents.git
+        git fetch --force --depth=1 --no-tags microlinkhq master:refs/remotes/microlinkhq/master
+        git restore --source=refs/remotes/microlinkhq/master -- src/
+        cat << 'EOF' > script.js
+        const fs = require('fs')
+        const re = /(?:^| )Electron(?:\/| |; |$)/i
+        fs.writeFileSync('./src/desktop.json', JSON.stringify(require('./src/desktop.json').filter(k => !k.match(re)), null, 2), 'utf-8')
+        fs.writeFileSync('./src/index.json', JSON.stringify(require('./src/index.json').filter(k => !k.match(re)), null, 2), 'utf-8')
+        fs.writeFileSync('./src/mobile.json', JSON.stringify(require('./src/mobile.json').filter(k => !k.match(re)), null, 2), 'utf-8')
+        EOF
+        node --use_strict script.js
+        rm script.js
+        cp -a src/. .
+        rm -r src/
+        
+        # Push to GitHub
+        git add -f .
+        git -c user.name="GitHub" -c user.email="noreply@github.com" commit --author="github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>" -m"$top_user_agents_version" | sed -n 1p
+        git tag -f "$top_user_agents_version"
+        git push --force
+        git push -f origin "refs/tags/$top_user_agents_version:refs/tags/$top_user_agents_version"
